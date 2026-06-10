@@ -125,17 +125,18 @@ func TestListenerEndToEndReply(t *testing.T) {
 	if !strings.Contains(p, "trip bot") || !strings.Contains(p, "lets meet at 5?") {
 		t.Errorf("prompt missing parts: %q", p)
 	}
-	// bot reply must be stored for future transcripts
-	msgs, _ := store.GetMessages("trip@g.us", 10)
-	foundBot := false
-	for _, m := range msgs {
-		if m.IsFromMe && strings.Contains(m.Content, "5pm works") {
-			foundBot = true
+	// bot reply must be stored for future transcripts. The store write
+	// happens after send() on the timer goroutine, so poll rather than
+	// asserting immediately.
+	waitFor(t, func() bool {
+		msgs, _ := store.GetMessages("trip@g.us", 10)
+		for _, m := range msgs {
+			if m.IsFromMe && strings.Contains(m.Content, "5pm works") {
+				return true
+			}
 		}
-	}
-	if !foundBot {
-		t.Error("bot reply not stored in message store")
-	}
+		return false
+	}, "bot reply not stored in message store")
 }
 
 func TestListenerSkipMeansNoSend(t *testing.T) {
