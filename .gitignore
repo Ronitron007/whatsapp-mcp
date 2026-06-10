@@ -1,3 +1,7 @@
 *.db
 claude_desktop_config.json
 whatsapp.log
+# local runtime state — never commit
+whatsapp-bridge/store/
+whatsapp-bridge/configs/listener.json
+whatsapp-bridge/configs/persona.md

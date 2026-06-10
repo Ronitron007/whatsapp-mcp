@@ -24,12 +24,26 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
+	"go.mau.fi/whatsmeow/proto/waWa6"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
+
+// applyPlatformWorkaround makes the bridge identify as a macOS desktop
+// companion instead of WEB. Since 2026-06-09 WhatsApp rejects whatsmeow's
+// WEB platform identity at handshake/pairing (tulir/whatsmeow#1164); real
+// browsers pass, so the block keys on more than the version string. The
+// MACOS identity is the community workaround until upstream ships a fix.
+func applyPlatformWorkaround() {
+	store.BaseClientPayload.UserAgent.Platform = waWa6.ClientPayload_UserAgent_MACOS.Enum()
+	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_CATALINA.Enum()
+	store.SetOSInfo("Mac OS", [3]uint32{14, 5, 0})
+}
 
 // Message represents a chat message for our client
 type Message struct {
@@ -409,7 +423,7 @@ func extractMediaInfo(msg *waProto.Message) (mediaType string, filename string, 
 }
 
 // Handle regular incoming messages with media support
-func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *events.Message, logger waLog.Logger) {
+func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *events.Message, logger waLog.Logger, listener *Listener) {
 	// Save message to database
 	chatJID := msg.Info.Chat.String()
 	sender := msg.Info.Sender.User
@@ -467,6 +481,17 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 		} else if content != "" {
 			fmt.Printf("[%s] %s %s: %s\n", timestamp, direction, sender, content)
 		}
+	}
+
+	// Hand the stored message to the auto-reply listener (no-op when disabled).
+	if listener != nil {
+		listener.OnMessage(LiveMsg{
+			ChatJID:   chatJID,
+			Sender:    sender,
+			Content:   content,
+			Timestamp: msg.Info.Timestamp,
+			IsFromMe:  msg.Info.IsFromMe,
+		})
 	}
 }
 
@@ -641,7 +666,7 @@ func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, message
 	}
 
 	// Download the media using whatsmeow client
-	mediaData, err := client.Download(downloader)
+	mediaData, err := client.Download(context.Background(), downloader)
 	if err != nil {
 		return false, "", "", "", fmt.Errorf("failed to download media: %v", err)
 	}
@@ -791,6 +816,9 @@ func main() {
 	logger := waLog.Stdout("Client", "INFO", true)
 	logger.Infof("Starting WhatsApp client...")
 
+	// Must run before any connection/pairing payloads are built.
+	applyPlatformWorkaround()
+
 	// Create database connection for storing session data
 	dbLog := waLog.Stdout("Database", "INFO", true)
 
@@ -800,14 +828,14 @@ func main() {
 		return
 	}
 
-	container, err := sqlstore.New("sqlite3", "file:store/whatsapp.db?_foreign_keys=on", dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file:store/whatsapp.db?_foreign_keys=on", dbLog)
 	if err != nil {
 		logger.Errorf("Failed to connect to database: %v", err)
 		return
 	}
 
 	// Get device store - This contains session information
-	deviceStore, err := container.GetFirstDevice()
+	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// No device exists, create one
@@ -834,12 +862,34 @@ func main() {
 	}
 	defer messageStore.Close()
 
+	// Auto-reply listener (see docs/superpowers/specs/2026-06-11-whatsapp-auto-reply-design.md)
+	listenerCfg, err := LoadListenerConfig("configs/listener.json")
+	if err != nil {
+		logger.Errorf("Invalid listener config: %v", err)
+		return
+	}
+	var listener *Listener
+	if listenerCfg.Enabled() {
+		sendFn := func(chatJID, text string) (bool, string) {
+			return sendWhatsAppMessage(client, chatJID, text, "")
+		}
+		listener = NewListener(listenerCfg, messageStore, sendFn, NewCLIInvoker(listenerCfg), waLog.Stdout("Listener", "INFO", true))
+		defer listener.Stop()
+		mode := "LIVE"
+		if listenerCfg.DryRun {
+			mode = "DRY RUN"
+		}
+		logger.Infof("Auto-reply listener ENABLED (%s) for %d chat(s)", mode, len(listenerCfg.Whitelist))
+	} else {
+		logger.Infof("Auto-reply listener disabled (no whitelist in configs/listener.json)")
+	}
+
 	// Setup event handling for messages and history sync
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Message:
 			// Process regular messages
-			handleMessage(client, messageStore, v, logger)
+			handleMessage(client, messageStore, v, logger, listener)
 
 		case *events.HistorySync:
 			// Process history sync events
@@ -850,6 +900,12 @@ func main() {
 
 		case *events.LoggedOut:
 			logger.Warnf("Device logged out, please scan QR code to log in again")
+
+		case *events.PairSuccess:
+			logger.Infof("Pairing succeeded: %s (platform: %s)", v.ID, v.Platform)
+
+		case *events.PairError:
+			logger.Errorf("Pairing FAILED: %s (platform: %s): %v", v.ID, v.Platform, v.Error)
 		}
 	})
 
@@ -874,6 +930,9 @@ func main() {
 			} else if evt.Event == "success" {
 				connected <- true
 				break
+			} else {
+				// timeout / err-client-outdated / err-scanned-without-multidevice etc.
+				logger.Errorf("QR channel event: %s (error: %v)", evt.Event, evt.Error)
 			}
 		}
 
@@ -973,7 +1032,7 @@ func GetChatName(client *whatsmeow.Client, messageStore *MessageStore, jid types
 
 		// If we didn't get a name, try group info
 		if name == "" {
-			groupInfo, err := client.GetGroupInfo(jid)
+			groupInfo, err := client.GetGroupInfo(context.Background(), jid)
 			if err == nil && groupInfo.Name != "" {
 				name = groupInfo.Name
 			} else {
@@ -988,7 +1047,7 @@ func GetChatName(client *whatsmeow.Client, messageStore *MessageStore, jid types
 		logger.Infof("Getting name for contact: %s", chatJID)
 
 		// Just use contact info (full name)
-		contact, err := client.Store.Contacts.GetContact(jid)
+		contact, err := client.Store.Contacts.GetContact(context.Background(), jid)
 		if err == nil && contact.FullName != "" {
 			name = contact.FullName
 		} else if sender != "" {

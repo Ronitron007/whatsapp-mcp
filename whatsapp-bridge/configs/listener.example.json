@@ -1,0 +1,19 @@
+{
+  "whitelist": ["120363000000000000@g.us"],
+  "dry_run": true,
+  "debounce_seconds": 15,
+  "context_messages": 30,
+  "max_replies_per_hour_per_chat": 6,
+  "max_replies_per_hour_global": 20,
+  "max_replies_per_minute_global": 2,
+  "max_consecutive_bot_replies": 2,
+  "quiet_hours": "",
+  "model": "",
+  "allowed_tools": ["Read", "Glob", "Grep", "WebSearch"],
+  "allowed_dirs": [],
+  "signature_prefix": "",
+  "claude_binary": "claude",
+  "claude_timeout_seconds": 60,
+  "kill_switch_path": "store/KILL",
+  "persona_path": "configs/persona.md"
+}
