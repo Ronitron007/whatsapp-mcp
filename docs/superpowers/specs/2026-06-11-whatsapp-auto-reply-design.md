@@ -55,11 +55,16 @@ New files (`listener.go`, `listener_config.go`, plus tests); hooks into the exis
 - Timeout 60s → kill, log, skip. Non-zero exit → log, skip. Never retry a send.
 - Output `[SKIP]` or empty → no send.
 
-**Send:** via existing bridge send path, to the originating chat JID only. The model never chooses recipients.
+**Send:** daemon prepends `signature_prefix` (if set), then sends via existing bridge send path, to the originating chat JID only. The model never chooses recipients.
 
-## Security decision: no tools for the auto-replier
+## Security decision: whitelisted tools + folders only
 
-Auto-reply `claude -p` gets **no MCP servers, no file access beyond the prompt**. Group messages are untrusted input; a tool-bearing Claude reading them is prompt-injectable (could exfiltrate chat history or message arbitrary contacts — the "lethal trifecta" upstream README warns about). Text-in → text-out only. The interactive MCP server remains for the human-driven sessions.
+Auto-reply `claude -p` runs with an explicit tool whitelist (user decision: useful replies need reference material, e.g. trip docs). Mechanics: `--allowedTools <list>` + `--add-dir <folders>` flags per invocation, both from config.
+
+- Default allowed: `Read`, `Glob`, `Grep` (scoped to `allowed_dirs`), `WebSearch`.
+- Never allowed: `Bash`, `Write`, `Edit`, any MCP server, any send-capable tool. The daemon alone sends, and only to the originating chat — the model never picks recipients.
+- `WebFetch` off by default (an injected prompt could exfiltrate folder contents via crafted URLs); enable knowingly via config if needed.
+- Rule of thumb: nothing secret in `allowed_dirs` — group messages are untrusted input and anything readable can end up in a reply.
 
 ## Guardrails
 
@@ -75,7 +80,10 @@ Config `configs/listener.json` (gitignored; `listener.example.json` committed):
 | `max_replies_per_hour_global` | 20 | spam brake |
 | `max_consecutive_bot_replies` | 2 | stop until a human speaks again |
 | `quiet_hours` | `null` | optional "23:00-08:00" window |
-| `model` | `""` (CLI default) | passed to `--model` if set |
+| `model` | `""` (CLI default) | passed to `--model` if set (`"sonnet"` alias OK) |
+| `allowed_tools` | `["Read","Glob","Grep","WebSearch"]` | `--allowedTools` for the reply Claude |
+| `allowed_dirs` | `[]` | `--add-dir` folders the reply Claude may read |
+| `signature_prefix` | `""` | prepended to every outgoing reply (e.g. `"🤖 bot: "`) |
 
 `configs/persona.md` (gitignored; example committed): who the bot is, tone, what to engage with, when to `[SKIP]`.
 
@@ -103,9 +111,9 @@ Defaults are safe: fresh checkout dry-runs with an empty whitelist.
 
 Media/voice replies, DM auto-replies, multi-account, VPS migration, Matrix/Beeper anything, reply threading/quotes, read receipts control.
 
-## Unresolved questions
+## Decisions (resolved 2026-06-11)
 
-1. Persona: what should the bot sound like / engage with? (drafts `persona.md`)
-2. Which real groups eventually? (need JIDs once paired)
-3. Model for `claude -p` — default, or pin haiku/sonnet for speed?
-4. Burner number ready, or acquire first?
+1. **Identity:** it IS a bot, openly. Burner phase: profile name identifies it, no in-message marker. Main-account phase: `signature_prefix` set so every reply is visibly bot-authored.
+2. **First group:** close-friends trip-planning group (JID captured after pairing). `allowed_dirs` can hold trip docs so replies cite real info.
+3. **Model:** CLI default; pinning `sonnet` via config is acceptable.
+4. **Burner:** in hand — P0 pairing unblocked.

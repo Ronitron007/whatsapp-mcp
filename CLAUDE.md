@@ -18,7 +18,7 @@ Fork of lharries/whatsapp-mcp + a listener that auto-replies in whitelisted What
 
 ## Safety rules (non-negotiable)
 
-- Auto-reply `claude -p` invocations get NO MCP tools — text in/out only (prompt-injection surface).
+- Auto-reply `claude -p` invocations: whitelisted tools only (`allowed_tools` + `allowed_dirs` in listener.json; default Read/Glob/Grep/WebSearch). NEVER Bash/Write/Edit/MCP/send tools — daemon alone sends, originating chat only. No secrets in `allowed_dirs`.
 - Never set `dry_run: false` or edit `whitelist` without explicit user instruction.
 - Kill switch: `touch whatsapp-bridge/store/KILL` stops all sends instantly.
 - Never commit: `store/` (session + messages), `configs/listener.json`, `configs/persona.md`.
