@@ -194,6 +194,29 @@ func TestListenerIgnoresNonWhitelistedAndOwn(t *testing.T) {
 	}
 }
 
+func TestListenerRepliesToOwnMessageWhenSigned(t *testing.T) {
+	inv := &fakeInvoker{reply: "on it"}
+	snd := &fakeSender{}
+	cfg := testCfg()
+	cfg.SignaturePrefix = "🤖 "
+	l, store := newTestListener(t, cfg, inv, snd)
+	l.setDebounceForTest(30 * time.Millisecond)
+
+	// owner's own message, NOT signed -> bot should reply
+	own := LiveMsg{ChatJID: "trip@g.us", Sender: "me", Content: "anyone book the cab?", Timestamp: time.Now(), IsFromMe: true}
+	mustStoreMsg(t, store, "m1", own)
+	l.OnMessage(own)
+	waitFor(t, func() bool { return snd.count() == 1 }, "bot should reply to owner's own message when signed mode is on")
+
+	// a bot-signed message must NOT trigger another reply (loop guard)
+	signed := LiveMsg{ChatJID: "trip@g.us", Sender: "me", Content: "🤖 on it", Timestamp: time.Now(), IsFromMe: true}
+	l.OnMessage(signed)
+	time.Sleep(60 * time.Millisecond)
+	if snd.count() != 1 {
+		t.Errorf("bot-signed message must not trigger a reply, got %d sends", snd.count())
+	}
+}
+
 func TestListenerKillSwitchBlocksSend(t *testing.T) {
 	inv := &fakeInvoker{reply: "should never go out"}
 	snd := &fakeSender{}

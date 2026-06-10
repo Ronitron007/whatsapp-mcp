@@ -16,19 +16,29 @@ func wl(jids ...string) map[string]bool {
 func TestPassesPrefilter(t *testing.T) {
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	whitelist := wl("trip@g.us")
+	const sig = "🤖 "
 	cases := []struct {
 		name string
 		msg  LiveMsg
+		sig  string
 		want bool
 	}{
-		{"ok", LiveMsg{ChatJID: "trip@g.us", Sender: "alice", Content: "hi", Timestamp: now.Add(-10 * time.Second)}, true},
-		{"not whitelisted", LiveMsg{ChatJID: "other@g.us", Content: "hi", Timestamp: now}, false},
-		{"from me", LiveMsg{ChatJID: "trip@g.us", Content: "hi", Timestamp: now, IsFromMe: true}, false},
-		{"stale (reconnect replay)", LiveMsg{ChatJID: "trip@g.us", Content: "hi", Timestamp: now.Add(-3 * time.Minute)}, false},
-		{"future clock skew ok", LiveMsg{ChatJID: "trip@g.us", Content: "hi", Timestamp: now.Add(5 * time.Second)}, true},
+		{"normal human", LiveMsg{ChatJID: "trip@g.us", Sender: "alice", Content: "hi", Timestamp: now.Add(-10 * time.Second)}, sig, true},
+		{"not whitelisted", LiveMsg{ChatJID: "other@g.us", Content: "hi", Timestamp: now}, sig, false},
+		// new: owner's own non-signed message IS replied to
+		{"own non-signed -> reply", LiveMsg{ChatJID: "trip@g.us", Content: "what's the plan", Timestamp: now, IsFromMe: true}, sig, true},
+		// loop guard: bot-signed messages are skipped (our reply, its echo)
+		{"bot-signed from me -> skip", LiveMsg{ChatJID: "trip@g.us", Content: "🤖 already on it", Timestamp: now, IsFromMe: true}, sig, false},
+		// loop guard also catches a friend spoofing the prefix
+		{"bot-signed from other -> skip", LiveMsg{ChatJID: "trip@g.us", Sender: "x", Content: "🤖 oh gaandu", Timestamp: now}, sig, false},
+		{"stale (reconnect replay)", LiveMsg{ChatJID: "trip@g.us", Content: "hi", Timestamp: now.Add(-3 * time.Minute)}, sig, false},
+		{"future clock skew ok", LiveMsg{ChatJID: "trip@g.us", Content: "hi", Timestamp: now.Add(5 * time.Second)}, sig, true},
+		// no signature configured -> fall back to skipping own messages (loop-safe)
+		{"no-sig fallback skips own", LiveMsg{ChatJID: "trip@g.us", Content: "hi", Timestamp: now, IsFromMe: true}, "", false},
+		{"no-sig allows others", LiveMsg{ChatJID: "trip@g.us", Sender: "x", Content: "hi", Timestamp: now}, "", true},
 	}
 	for _, tc := range cases {
-		got, reason := PassesPrefilter(whitelist, tc.msg, now, 2*time.Minute)
+		got, reason := PassesPrefilter(whitelist, tc.msg, now, 2*time.Minute, tc.sig)
 		if got != tc.want {
 			t.Errorf("%s: got %v (%s), want %v", tc.name, got, reason, tc.want)
 		}

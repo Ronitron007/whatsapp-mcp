@@ -19,12 +19,24 @@ type LiveMsg struct {
 // PassesPrefilter gates messages before any further processing.
 // maxAge guards against whatsmeow's offline/backlog replay on reconnect:
 // without it the bot would answer messages from hours ago.
-func PassesPrefilter(whitelist map[string]bool, m LiveMsg, now time.Time, maxAge time.Duration) (bool, string) {
+//
+// Loop protection is signature-based: when signaturePrefix is set, any
+// message whose text starts with it is skipped (the bot's own replies,
+// their WhatsApp echoes, or someone impersonating the bot). Crucially,
+// the account owner's OWN non-signed messages are NOT skipped, so the bot
+// replies to the owner too. When no signature is configured we cannot tell
+// the bot apart from the owner, so we fall back to skipping all IsFromMe
+// messages to stay loop-safe.
+func PassesPrefilter(whitelist map[string]bool, m LiveMsg, now time.Time, maxAge time.Duration, signaturePrefix string) (bool, string) {
 	if !whitelist[m.ChatJID] {
 		return false, "chat not whitelisted"
 	}
-	if m.IsFromMe {
-		return false, "own message"
+	if sig := strings.TrimSpace(signaturePrefix); sig != "" {
+		if strings.HasPrefix(strings.TrimSpace(m.Content), sig) {
+			return false, "bot-signed message (loop guard)"
+		}
+	} else if m.IsFromMe {
+		return false, "own message (no signature configured)"
 	}
 	if now.Sub(m.Timestamp) > maxAge {
 		return false, fmt.Sprintf("stale (%s old)", now.Sub(m.Timestamp).Round(time.Second))

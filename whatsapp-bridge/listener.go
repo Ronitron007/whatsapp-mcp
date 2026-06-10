@@ -57,7 +57,7 @@ func (l *Listener) setDebounceForTest(d time.Duration) {
 // OnMessage is called from handleMessage for every stored live message.
 // Cheap and non-blocking: heavy work happens on debounce fire.
 func (l *Listener) OnMessage(m LiveMsg) {
-	ok, reason := PassesPrefilter(l.whitelist, m, time.Now(), 2*time.Minute)
+	ok, reason := PassesPrefilter(l.whitelist, m, time.Now(), 2*time.Minute, l.cfg.SignaturePrefix)
 	if !ok {
 		if l.whitelist[m.ChatJID] {
 			l.log.Infof("listener: ignoring message in %s: %s", m.ChatJID, reason)
@@ -98,7 +98,7 @@ func (l *Listener) fire(chatJID string) {
 		l.log.Errorf("listener: transcript fetch failed for %s: %v", chatJID, err)
 		return
 	}
-	prompt := BuildPrompt(string(persona), BuildTranscript(msgs))
+	prompt := BuildPrompt(string(persona), BuildTranscript(msgs, l.cfg.SignaturePrefix))
 
 	l.claudeMu.Lock()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(l.cfg.ClaudeTimeoutSeconds)*time.Second)

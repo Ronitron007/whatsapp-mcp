@@ -41,7 +41,7 @@ New files (`listener.go`, `listener_config.go`, plus tests); hooks into the exis
 **Filter chain** (all must pass):
 1. Chat JID in `listener.json` whitelist.
 2. Text message (media-triggered replies out of scope v1).
-3. `!IsFromMe` (covers our own sends — loop protection level 1).
+3. Loop guard (signature-based): skip messages whose text starts with `signature_prefix` — the bot's own replies, their WhatsApp echoes, and anyone impersonating the bot. The account owner's **own non-signed messages are processed**, so the bot replies to the owner too. If `signature_prefix` is empty, fall back to skipping all `IsFromMe` messages (loop-safe, but no owner replies).
 4. Fresh: `now - msg.Timestamp < 120s`. whatsmeow replays backlog/history-sync on reconnect; without this the bot answers stale messages.
 5. Kill switch file (`store/KILL`) absent.
 6. Rate limits not exceeded (below).
