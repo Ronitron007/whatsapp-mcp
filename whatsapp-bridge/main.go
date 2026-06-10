@@ -24,12 +24,26 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
+	"go.mau.fi/whatsmeow/proto/waWa6"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
+
+// applyPlatformWorkaround makes the bridge identify as a macOS desktop
+// companion instead of WEB. Since 2026-06-09 WhatsApp rejects whatsmeow's
+// WEB platform identity at handshake/pairing (tulir/whatsmeow#1164); real
+// browsers pass, so the block keys on more than the version string. The
+// MACOS identity is the community workaround until upstream ships a fix.
+func applyPlatformWorkaround() {
+	store.BaseClientPayload.UserAgent.Platform = waWa6.ClientPayload_UserAgent_MACOS.Enum()
+	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_CATALINA.Enum()
+	store.SetOSInfo("Mac OS", [3]uint32{14, 5, 0})
+}
 
 // Message represents a chat message for our client
 type Message struct {
@@ -802,6 +816,9 @@ func main() {
 	logger := waLog.Stdout("Client", "INFO", true)
 	logger.Infof("Starting WhatsApp client...")
 
+	// Must run before any connection/pairing payloads are built.
+	applyPlatformWorkaround()
+
 	// Create database connection for storing session data
 	dbLog := waLog.Stdout("Database", "INFO", true)
 
@@ -883,6 +900,12 @@ func main() {
 
 		case *events.LoggedOut:
 			logger.Warnf("Device logged out, please scan QR code to log in again")
+
+		case *events.PairSuccess:
+			logger.Infof("Pairing succeeded: %s (platform: %s)", v.ID, v.Platform)
+
+		case *events.PairError:
+			logger.Errorf("Pairing FAILED: %s (platform: %s): %v", v.ID, v.Platform, v.Error)
 		}
 	})
 
@@ -907,6 +930,9 @@ func main() {
 			} else if evt.Event == "success" {
 				connected <- true
 				break
+			} else {
+				// timeout / err-client-outdated / err-scanned-without-multidevice etc.
+				logger.Errorf("QR channel event: %s (error: %v)", evt.Event, evt.Error)
 			}
 		}
 
