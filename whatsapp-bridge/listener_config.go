@@ -85,6 +85,3 @@ func LoadListenerConfig(path string) (ListenerConfig, error) {
 	}
 	return cfg, cfg.validate()
 }
-
-// parseQuietHours is implemented in listener_filter.go (Task 2). Temporary stub.
-func parseQuietHours(spec string) (start, end int, err error) { return 0, 0, nil }
