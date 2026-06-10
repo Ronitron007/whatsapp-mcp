@@ -9,22 +9,24 @@ import (
 // Limiter enforces hourly reply caps and the consecutive-bot-reply cap.
 // In-memory only: restart resets counters (accepted in spec).
 type Limiter struct {
-	mu          sync.Mutex
-	perChat     int
-	global      int
-	maxConsec   int
-	chatTimes   map[string][]time.Time
-	globalTimes []time.Time
-	consecutive map[string]int
+	mu           sync.Mutex
+	perChat      int
+	global       int
+	globalPerMin int
+	maxConsec    int
+	chatTimes    map[string][]time.Time
+	globalTimes  []time.Time
+	consecutive  map[string]int
 }
 
-func NewLimiter(perChatPerHour, globalPerHour, maxConsecutive int) *Limiter {
+func NewLimiter(perChatPerHour, globalPerHour, globalPerMinute, maxConsecutive int) *Limiter {
 	return &Limiter{
-		perChat:     perChatPerHour,
-		global:      globalPerHour,
-		maxConsec:   maxConsecutive,
-		chatTimes:   map[string][]time.Time{},
-		consecutive: map[string]int{},
+		perChat:      perChatPerHour,
+		global:       globalPerHour,
+		globalPerMin: globalPerMinute,
+		maxConsec:    maxConsecutive,
+		chatTimes:    map[string][]time.Time{},
+		consecutive:  map[string]int{},
 	}
 }
 
@@ -46,6 +48,18 @@ func (l *Limiter) Allow(chat string, now time.Time) (bool, string) {
 	l.chatTimes[chat] = pruneOld(l.chatTimes[chat], cutoff)
 	l.globalTimes = pruneOld(l.globalTimes, cutoff)
 
+	if l.globalPerMin > 0 {
+		minuteCutoff := now.Add(-time.Minute)
+		recent := 0
+		for _, t := range l.globalTimes {
+			if t.After(minuteCutoff) {
+				recent++
+			}
+		}
+		if recent >= l.globalPerMin {
+			return false, fmt.Sprintf("global cap %d/min reached", l.globalPerMin)
+		}
+	}
 	if len(l.chatTimes[chat]) >= l.perChat {
 		return false, fmt.Sprintf("per-chat cap %d/hr reached", l.perChat)
 	}

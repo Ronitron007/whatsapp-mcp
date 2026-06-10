@@ -78,6 +78,7 @@ Config `configs/listener.json` (gitignored; `listener.example.json` committed):
 | `context_messages` | 30 | transcript depth per invocation |
 | `max_replies_per_hour_per_chat` | 6 | spam brake |
 | `max_replies_per_hour_global` | 20 | spam brake |
+| `max_replies_per_minute_global` | 2 | hard burst ceiling (main-account safety) |
 | `max_consecutive_bot_replies` | 2 | stop until a human speaks again |
 | `quiet_hours` | `null` | optional "23:00-08:00" window |
 | `model` | `""` (CLI default) | passed to `--model` if set (`"sonnet"` alias OK) |

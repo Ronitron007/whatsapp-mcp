@@ -20,6 +20,9 @@ func TestDefaultListenerConfig(t *testing.T) {
 	if c.MaxRepliesPerHourPerChat != 6 || c.MaxRepliesPerHourGlobal != 20 || c.MaxConsecutiveBotReplies != 2 {
 		t.Errorf("bad limit defaults: %+v", c)
 	}
+	if c.MaxRepliesPerMinGlobal != 2 {
+		t.Errorf("MaxRepliesPerMinGlobal default = %d, want 2", c.MaxRepliesPerMinGlobal)
+	}
 	if len(c.AllowedTools) != 4 || c.AllowedTools[0] != "Read" {
 		t.Errorf("bad AllowedTools default: %v", c.AllowedTools)
 	}

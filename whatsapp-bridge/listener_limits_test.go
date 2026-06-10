@@ -5,9 +5,32 @@ import (
 	"time"
 )
 
+func TestLimiterPerMinuteWindow(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	l := NewLimiter(99, 99, 2, 99) // 2/min global, other caps effectively off
+	if ok, _ := l.Allow("a", now); !ok {
+		t.Fatal("first must pass")
+	}
+	l.RecordBotReply("a", now)
+	if ok, _ := l.Allow("b", now.Add(10*time.Second)); !ok {
+		t.Fatal("second within the minute must pass")
+	}
+	l.RecordBotReply("b", now.Add(10*time.Second))
+	// across chats: 2 already sent this minute -> 3rd blocked regardless of chat
+	if ok, reason := l.Allow("c", now.Add(20*time.Second)); ok {
+		t.Fatal("third in same minute must block (global 2/min)")
+	} else if reason == "" {
+		t.Fatal("blocked Allow must give a reason")
+	}
+	// minute window slides -> allowed again
+	if ok, _ := l.Allow("c", now.Add(61*time.Second)); !ok {
+		t.Fatal("after the minute slides, must allow again")
+	}
+}
+
 func TestLimiterHourlyWindows(t *testing.T) {
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	l := NewLimiter(2, 3, 99) // 2/hr/chat, 3/hr global, consecutive effectively off
+	l := NewLimiter(2, 3, 99, 99) // 2/hr/chat, 3/hr global, per-min + consecutive off
 	if ok, _ := l.Allow("a", now); !ok {
 		t.Fatal("first must pass")
 	}
@@ -34,7 +57,7 @@ func TestLimiterHourlyWindows(t *testing.T) {
 
 func TestLimiterConsecutiveCap(t *testing.T) {
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	l := NewLimiter(99, 99, 2)
+	l := NewLimiter(99, 99, 99, 2)
 	l.RecordBotReply("a", now)
 	l.RecordBotReply("a", now.Add(time.Second))
 	if ok, _ := l.Allow("a", now.Add(2*time.Second)); ok {

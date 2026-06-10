@@ -38,7 +38,7 @@ func NewListener(cfg ListenerConfig, store *MessageStore, send SendFunc, invoker
 		store:     store,
 		send:      send,
 		invoker:   invoker,
-		limiter:   NewLimiter(cfg.MaxRepliesPerHourPerChat, cfg.MaxRepliesPerHourGlobal, cfg.MaxConsecutiveBotReplies),
+		limiter:   NewLimiter(cfg.MaxRepliesPerHourPerChat, cfg.MaxRepliesPerHourGlobal, cfg.MaxRepliesPerMinGlobal, cfg.MaxConsecutiveBotReplies),
 		log:       logger,
 	}
 	for _, j := range cfg.Whitelist {

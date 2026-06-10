@@ -14,6 +14,7 @@ type ListenerConfig struct {
 	ContextMessages          int      `json:"context_messages"`
 	MaxRepliesPerHourPerChat int      `json:"max_replies_per_hour_per_chat"`
 	MaxRepliesPerHourGlobal  int      `json:"max_replies_per_hour_global"`
+	MaxRepliesPerMinGlobal   int      `json:"max_replies_per_minute_global"`
 	MaxConsecutiveBotReplies int      `json:"max_consecutive_bot_replies"`
 	QuietHours               string   `json:"quiet_hours"` // "" or "23:00-08:00"
 	Model                    string   `json:"model"`
@@ -34,6 +35,7 @@ func DefaultListenerConfig() ListenerConfig {
 		ContextMessages:          30,
 		MaxRepliesPerHourPerChat: 6,
 		MaxRepliesPerHourGlobal:  20,
+		MaxRepliesPerMinGlobal:   2,
 		MaxConsecutiveBotReplies: 2,
 		AllowedTools:             []string{"Read", "Glob", "Grep", "WebSearch"},
 		ClaudeBinary:             "claude",
