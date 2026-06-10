@@ -181,3 +181,31 @@ By default, just the metadata of the media is stored in the local database. The 
 - **WhatsApp Out of Sync**: If your WhatsApp messages get out of sync with the bridge, delete both database files (`whatsapp-bridge/store/messages.db` and `whatsapp-bridge/store/whatsapp.db`) and restart the bridge to re-authenticate.
 
 For additional Claude Desktop integration troubleshooting, see the [MCP documentation](https://modelcontextprotocol.io/quickstart/server#claude-for-desktop-integration-issues). The documentation includes helpful tips for checking logs and resolving common issues.
+
+## Auto-Reply Listener (this fork)
+
+This fork adds an auto-reply bot: messages in whitelisted group chats are
+debounced, sent to headless `claude -p` with a persona + recent transcript,
+and Claude's reply (or `[SKIP]`) goes back to that chat only.
+Spec: `docs/superpowers/specs/2026-06-11-whatsapp-auto-reply-design.md`.
+
+### Setup
+
+1. `cd whatsapp-bridge && cp configs/listener.example.json configs/listener.json && cp configs/persona.example.md configs/persona.md`
+2. Find your group JID: run the bridge, send a message in the target group,
+   copy the `...@g.us` JID from the bridge log line (or ask Claude Code via the
+   MCP `list_chats` tool).
+3. Put the JID in `whitelist`. Keep `dry_run: true`.
+4. `go run .` — watch for `[DRY RUN]` lines as group messages arrive.
+5. When the drafts look right: set `dry_run: false`, restart.
+
+### Safety
+
+- `touch store/KILL` — instant stop (checked before scheduling and before send).
+- Replies only go to the chat that triggered them; the model cannot pick recipients.
+- `claude -p` runs with `--allowedTools` (default `Read,Glob,Grep,WebSearch`),
+  hard-denies `Bash,Write,Edit,NotebookEdit,WebFetch`, and `--strict-mcp-config`
+  (no MCP servers). Folders in `allowed_dirs` are readable by the replier —
+  keep secrets out of them.
+- Rate limits: per-chat/hour, global/hour, max consecutive bot replies.
+- Run on a burner number first. Unofficial WhatsApp clients carry ban risk.
