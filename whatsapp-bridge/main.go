@@ -409,7 +409,7 @@ func extractMediaInfo(msg *waProto.Message) (mediaType string, filename string, 
 }
 
 // Handle regular incoming messages with media support
-func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *events.Message, logger waLog.Logger) {
+func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *events.Message, logger waLog.Logger, listener *Listener) {
 	// Save message to database
 	chatJID := msg.Info.Chat.String()
 	sender := msg.Info.Sender.User
@@ -467,6 +467,17 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 		} else if content != "" {
 			fmt.Printf("[%s] %s %s: %s\n", timestamp, direction, sender, content)
 		}
+	}
+
+	// Hand the stored message to the auto-reply listener (no-op when disabled).
+	if listener != nil {
+		listener.OnMessage(LiveMsg{
+			ChatJID:   chatJID,
+			Sender:    sender,
+			Content:   content,
+			Timestamp: msg.Info.Timestamp,
+			IsFromMe:  msg.Info.IsFromMe,
+		})
 	}
 }
 
@@ -834,12 +845,34 @@ func main() {
 	}
 	defer messageStore.Close()
 
+	// Auto-reply listener (see docs/superpowers/specs/2026-06-11-whatsapp-auto-reply-design.md)
+	listenerCfg, err := LoadListenerConfig("configs/listener.json")
+	if err != nil {
+		logger.Errorf("Invalid listener config: %v", err)
+		return
+	}
+	var listener *Listener
+	if listenerCfg.Enabled() {
+		sendFn := func(chatJID, text string) (bool, string) {
+			return sendWhatsAppMessage(client, chatJID, text, "")
+		}
+		listener = NewListener(listenerCfg, messageStore, sendFn, NewCLIInvoker(listenerCfg), waLog.Stdout("Listener", "INFO", true))
+		defer listener.Stop()
+		mode := "LIVE"
+		if listenerCfg.DryRun {
+			mode = "DRY RUN"
+		}
+		logger.Infof("Auto-reply listener ENABLED (%s) for %d chat(s)", mode, len(listenerCfg.Whitelist))
+	} else {
+		logger.Infof("Auto-reply listener disabled (no whitelist in configs/listener.json)")
+	}
+
 	// Setup event handling for messages and history sync
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Message:
 			// Process regular messages
-			handleMessage(client, messageStore, v, logger)
+			handleMessage(client, messageStore, v, logger, listener)
 
 		case *events.HistorySync:
 			// Process history sync events
